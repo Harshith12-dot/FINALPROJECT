@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-SCA // Side-Channel Attack Detector & Dynamic Power Masking Defense</title>
+  <style>
+    :root {
+      --bg-deep: #050806;
+      --bg-panel: #0b150f;
+      --bg-panel-alt: #0e1c14;
+      --border-green: #184227;
+      --border-glow: #00ff66;
+      --neon-green: #00ff66;
+      --neon-mint: #80ffb8;
+      --text-white: #e6fff0;
+      --text-muted: #4e8a65;
+      --alert-red: #ff2244;
+      --alert-bg: #2b060b;
+      --warn-yellow: #ffbb00;
+      --cyan-line: #00e5ff;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Consolas', 'Courier New', monospace;
+    }
+
+    body {
+      background-color: var(--bg-deep);
+      color: var(--text-white);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Header */
+    header {
+      background-color: var(--bg-panel);
+      border-bottom: 1px solid var(--border-green);
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .title-box h1 {
+      font-size: 1.25rem;
+      color: var(--neon-green);
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .title-box p {
+      font-size: 0.78rem;
+      color: var(--neon-mint);
+      margin-top: 3px;
+    }
+
+    .status-pill {
+      font-size: 0.85rem;
+      font-weight: bold;
+      padding: 8px 16px;
+      border-radius: 4px;
+      border: 1px solid var(--border-green);
+      background: var(--bg-panel-alt);
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+      transition: all 0.2s ease;
+    }
+
+    .status-pill.secure {
+      background: #072412;
+      color: var(--neon-green);
+      border-color: var(--neon-green);
+      box-shadow: 0 0 10px rgba(0, 255, 102, 0.25);
+    }
+
+    .status-pill.defense {
+      background: #062b33;
+      color: var(--cyan-line);
+      border-color: var(--cyan-line);
+      box-shadow: 0 0 14px rgba(0, 229, 255, 0.4);
+      animation: pulseDefense 1.2s infinite alternate;
+    }
+
+    .status-pill.training {
+      background: #061d24;
+      color: var(--cyan-line);
+      border-color: var(--cyan-line);
+    }
+
+    .status-pill.alert {
+      background: var(--alert-red);
+      color: #fff;
+      border-color: #fff;
+      box-shadow: 0 0 15px rgba(255, 34, 68, 0.6);
+      animation: flashPulse 1s infinite alternate;
+    }
+
+    @keyframes pulseDefense {
+      0% { opacity: 0.9; transform: scale(1.0); }
+      100% { opacity: 1; transform: scale(1.02); }
+    }
+
+    @keyframes flashPulse {
+      0% { opacity: 0.9; }
+      100% { opacity: 1; transform: scale(1.02); }
+    }
+
+    /* Toolbar */
+    .toolbar {
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-green);
+      padding: 10px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+    }
+
+    .control-group label {
+      color: var(--text-muted);
+      font-weight: bold;
+    }
+
+    select, input[type="number"] {
+      background: var(--bg-panel-alt);
+      border: 1px solid var(--border-green);
+      color: var(--neon-green);
+      padding: 4px 8px;
+      border-radius: 3px;
+      font-family: inherit;
+      outline: none;
+    }
+
+    select:focus, input:focus {
+      border-color: var(--neon-green);
+    }
+
+    button {
+      background: var(--bg-panel-alt);
+      border: 1px solid var(--border-green);
+      color: var(--neon-green);
+      padding: 6px 14px;
+      font-size: 0.82rem;
+      font-weight: bold;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+
+    button:hover {
+      background: var(--neon-green);
+      color: var(--bg-deep);
+      box-shadow: 0 0 8px rgba(0, 255, 102, 0.4);
+    }
+
+    button.btn-primary {
+      background: var(--neon-green);
+      color: var(--bg-deep);
+      border-color: var(--neon-green);
+    }
+
+    button.btn-primary:hover {
+      background: var(--neon-mint);
+    }
+
+    button.btn-danger {
+      background: #3d0b12;
+      color: #ffaaaa;
+      border-color: var(--alert-red);
+    }
+
+    button.btn-danger:hover {
+      background: var(--alert-red);
+      color: #fff;
+    }
+
+    button.btn-defense {
+      background: #082930;
+      color: var(--cyan-line);
+      border-color: var(--cyan-line);
+    }
+
+    button.btn-defense:hover {
+      background: var(--cyan-line);
+      color: var(--bg-deep);
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--warn-yellow);
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    /* Main Container Grid */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      grid-gap: 16px;
+      padding: 16px 24px;
+      flex: 1;
+    }
+
+    .panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-green);
+      border-radius: 4px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .panel-title {
+      font-size: 0.85rem;
+      font-weight: bold;
+      color: var(--neon-green);
+      letter-spacing: 0.5px;
+    }
+
+    .legend {
+      display: flex;
+      gap: 12px;
+      font-size: 0.75rem;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .legend-box {
+      width: 10px;
+      height: 10px;
+    }
+
+    canvas.oscilloscope {
+      background: #020603;
+      border: 1px solid var(--border-green);
+      border-radius: 3px;
+      width: 100%;
+      height: 340px;
+    }
+
+    /* HUD Metrics Cards */
+    .hud-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .card {
+      background: var(--bg-panel-alt);
+      border: 1px solid var(--border-green);
+      border-radius: 3px;
+      padding: 10px 14px;
+    }
+
+    .card-title {
+      font-size: 0.72rem;
+      font-weight: bold;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .current-value {
+      font-size: 1.9rem;
+      font-weight: bold;
+      color: var(--neon-green);
+      transition: color 0.15s;
+    }
+
+    .current-value.alert { color: var(--alert-red); }
+    .current-value.defense { color: var(--cyan-line); }
+
+    .meter-bar {
+      height: 8px;
+      background: #07120b;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+
+    .meter-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--neon-green);
+      transition: width 0.05s ease, background 0.15s;
+    }
+
+    .meter-fill.alert { background: var(--alert-red); }
+    .meter-fill.defense { background: var(--cyan-line); }
+
+    .hud-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      padding: 3px 0;
+    }
+
+    .hud-label { color: var(--text-muted); }
+    .hud-val { font-weight: bold; color: var(--text-white); }
+
+    /* Lower Section */
+    .lower-grid {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      grid-gap: 16px;
+    }
+
+    .oled-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    canvas.oled-screen {
+      background: #000;
+      border: 2px solid #142b1c;
+      border-radius: 4px;
+      box-shadow: 0 0 10px rgba(0, 255, 102, 0.1);
+    }
+
+    .terminal-container {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .terminal-box {
+      background: #020603;
+      border: 1px solid var(--border-green);
+      border-radius: 3px;
+      padding: 10px;
+      flex: 1;
+      height: 160px;
+      overflow-y: auto;
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+
+    .log-line {
+      margin-bottom: 2px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .log-line.ALERT { color: var(--alert-red); font-weight: bold; }
+    .log-line.SUCCESS { color: #33ff88; }
+    .log-line.TRAIN { color: var(--cyan-line); }
+    .log-line.WARN { color: var(--warn-yellow); }
+    .log-line.ERROR { color: #ff5555; }
+    .log-line.INFO { color: var(--neon-mint); }
+
+    footer {
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border-green);
+      padding: 6px 24px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    @media (max-width: 900px) {
+      .dashboard-grid { grid-template-columns: 1fr; }
+      .lower-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header>
+    <div class="title-box">
+      <h1>⚡ AI SIDE-CHANNEL DETECTOR & POWER MASKING DEFENSE</h1>
+      <p>Physical Behavior Change Detection → Dynamic Current Scrambling to Prevent Secret Key Extraction</p>
+    </div>
+    <div id="statusPill" class="status-pill">● SYSTEM OFFLINE</div>
+  </header>
+
+  <!-- Toolbar Controls -->
+  <div class="toolbar">
+    <div class="control-group">
+      <label for="portSelect">PORT:</label>
+      <select id="portSelect"></select>
+      <button id="btnScanPorts">⟳ SCAN</button>
+    </div>
+
+    <div class="control-group">
+      <label for="baudSelect">BAUD:</label>
+      <select id="baudSelect">
+        <option value="115200" selected>115200</option>
+        <option value="9600">9600</option>
+        <option value="57600">57600</option>
+      </select>
+    </div>
+
+    <button id="btnConnect" class="btn-primary">CONNECT ESP32</button>
+
+    <label class="checkbox-label">
+      <input type="checkbox" id="chkSimMode">
+      🧪 SIMULATOR MODE
+    </label>
+
+    <!-- Physical Button Trigger -->
+    <button id="btnTriggerPhysical" class="btn-danger">⚡ PRESS BUTTON (CHANGE CURRENT)</button>
+
+    <!-- Dynamic Power Masking Toggle -->
+    <button id="btnToggleDefense" class="btn-defense">🛡️ POWER MASKING: ON</button>
+
+    <label class="checkbox-label" style="font-size: 0.8rem; color: var(--neon-mint);">
+      <input type="checkbox" id="chkAutoDefense" checked>
+      Auto-Mask Current on Attack
+    </label>
+
+    <div class="control-group" style="margin-left: auto;">
+      <label for="numThreshold">Δ TRIP THRESHOLD:</label>
+      <input type="number" id="numThreshold" value="10.0" step="1.0" min="2" max="100" style="width: 55px;">
+      <span style="color: var(--text-muted); font-size: 0.8rem;">mA</span>
+    </div>
+  </div>
+
+  <!-- Main Dashboard Grid -->
+  <div class="dashboard-grid">
+
+    <!-- Oscilloscope Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">// POWER TRACE OSCILLOSCOPE [CURRENT vs ACTIVE MASKING]</div>
+        <div class="legend">
+          <div class="legend-item"><div class="legend-box" style="background: var(--neon-green);"></div> Normal Wave</div>
+          <div class="legend-item"><div class="legend-box" style="background: var(--alert-red);"></div> Attack Spike</div>
+          <div class="legend-item"><div class="legend-box" style="background: var(--cyan-line);"></div> Masked Defense</div>
+          <div class="legend-item"><div class="legend-box" style="background: var(--text-muted);"></div> Baseline μ</div>
+        </div>
+      </div>
+      <canvas id="oscCanvas" class="oscilloscope" width="800" height="340"></canvas>
+    </div>
+
+    <!-- Telemetry & Defense HUD Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">// CORE DEFENSE & TELEMETRY HUD</div>
+      </div>
+      <div class="hud-cards">
+        <!-- Live Current -->
+        <div class="card">
+          <div class="card-title">Live Current Draw</div>
+          <div id="liveCurrent" class="current-value">0.00 mA</div>
+          <div class="meter-bar">
+            <div id="meterFill" class="meter-fill"></div>
+          </div>
+        </div>
+
+        <!-- Power Masking Countermeasure -->
+        <div class="card">
+          <div class="card-title">Side-Channel Defense: Power Masking</div>
+          <div class="hud-row">
+            <span class="hud-label">Countermeasure State:</span>
+            <span id="valDefenseState" class="hud-val" style="color: var(--cyan-line);">ARMED (STANDBY)</span>
+          </div>
+          <div class="hud-row">
+            <span class="hud-label">Hacker Correlation:</span>
+            <span id="valCorrelation" class="hud-val" style="color: var(--neon-green);">1.2% (SAFE)</span>
+          </div>
+          <div class="hud-row">
+            <span class="hud-label">Secret Key Security:</span>
+            <span id="valKeySecurity" class="hud-val" style="color: var(--neon-mint);">SHIELDED 🛡️</span>
+          </div>
+          <div class="hud-row">
+            <span class="hud-label">Injected Masking Noise:</span>
+            <span id="valMaskingNoise" class="hud-val" style="color: var(--cyan-line);">0.00 mA</span>
+          </div>
+        </div>
+
+        <!-- Baseline & Shift -->
+        <div class="card">
+          <div class="card-title">Baseline Telemetry & Drift</div>
+          <div class="hud-row">
+            <span class="hud-label">Idle Baseline (μ):</span>
+            <span id="valBaseline" class="hud-val" style="color: var(--cyan-line);">-- mA</span>
+          </div>
+          <div class="hud-row">
+            <span class="hud-label">Current Shift (Δ):</span>
+            <span id="valDelta" class="hud-val">0.00 mA</span>
+          </div>
+          <div class="hud-row">
+            <span class="hud-label">Trip Sensitivity:</span>
+            <span id="valLimit" class="hud-val" style="color: var(--warn-yellow);">≥ 10.00 mA</span>
+          </div>
+        </div>
+
+        <!-- AI Model & Protocol -->
+        <div class="card">
+          <div class="card-title">AI Model & 2-Way Protocol</div>
+          <div class="hud-row">
+            <span class="hud-label">One-Class SVM:</span>
+            <span id="valSvmVerdict" class="hud-val" style="color: var(--neon-green);">NORMAL (+1)</span>
+          </div>
+          <div class="hud-row">
+            <span class="hud-label">2-Way Protocol Out:</span>
+            <span id="valProtocol" class="hud-val" style="color: var(--neon-green);">Sent: b'0' (Secure)</span>
+          </div>
+          <div class="hud-row">
+            <span class="hud-label">Telemetry Sampling:</span>
+            <span id="valRate" class="hud-val" style="color: var(--text-muted);">0.0 Hz</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lower Section -->
+    <div class="lower-grid">
+      <!-- OLED Mirror -->
+      <div class="panel oled-container">
+        <div class="panel-header" style="width: 100%;">
+          <div class="panel-title">// HARDWARE OLED MIRROR [SSD1306 128x64]</div>
+        </div>
+        <canvas id="oledCanvas" class="oled-screen" width="256" height="128"></canvas>
+        <span style="font-size: 0.72rem; color: var(--text-muted);">Real-time mirror of physical ESP32 OLED display</span>
+      </div>
+
+      <!-- Terminal Console -->
+      <div class="panel terminal-container">
+        <div class="panel-header">
+          <div class="panel-title">// POWER MASKING & ML EVENT STREAM CONSOLE</div>
+          <div style="display: flex; gap: 8px;">
+            <button id="btnClearLog" style="padding: 2px 8px; font-size: 0.75rem;">CLEAR</button>
+            <button id="btnExportLog" style="padding: 2px 8px; font-size: 0.75rem;">EXPORT LOG</button>
+          </div>
+        </div>
+        <div id="terminalBox" class="terminal-box"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <div id="footerStatus">Ready. Press button to change current; system will detect and scramble current again to prevent attack.</div>
+    <div>AI-SCA Power Masking Defense System v2.1 • Differential Power Analysis Countermeasure</div>
+  </footer>
+
+  <script>
+    let isConnected = false;
+    let isAttacking = false;
+    let isDefending = true;
+    let cachedSnapshot = null;
+
+    const statusPill = document.getElementById('statusPill');
+    const portSelect = document.getElementById('portSelect');
+    const baudSelect = document.getElementById('baudSelect');
+    const btnConnect = document.getElementById('btnConnect');
+    const chkSimMode = document.getElementById('chkSimMode');
+    const btnScanPorts = document.getElementById('btnScanPorts');
+    const btnTriggerPhysical = document.getElementById('btnTriggerPhysical');
+    const btnToggleDefense = document.getElementById('btnToggleDefense');
+    const chkAutoDefense = document.getElementById('chkAutoDefense');
+    const numThreshold = document.getElementById('numThreshold');
+    const liveCurrent = document.getElementById('liveCurrent');
+    const meterFill = document.getElementById('meterFill');
+    const valDefenseState = document.getElementById('valDefenseState');
+    const valCorrelation = document.getElementById('valCorrelation');
+    const valKeySecurity = document.getElementById('valKeySecurity');
+    const valMaskingNoise = document.getElementById('valMaskingNoise');
+    const valBaseline = document.getElementById('valBaseline');
+    const valDelta = document.getElementById('valDelta');
+    const valLimit = document.getElementById('valLimit');
+    const valSvmVerdict = document.getElementById('valSvmVerdict');
+    const valProtocol = document.getElementById('valProtocol');
+    const valRate = document.getElementById('valRate');
+    const terminalBox = document.getElementById('terminalBox');
+
+    const oscCanvas = document.getElementById('oscCanvas');
+    const oscCtx = oscCanvas.getContext('2d');
+    const oledCanvas = document.getElementById('oledCanvas');
+    const oledCtx = oledCanvas.getContext('2d');
+
+    function resizeOsc() {
+      const rect = oscCanvas.getBoundingClientRect();
+      oscCanvas.width = rect.width * window.devicePixelRatio;
+      oscCanvas.height = rect.height * window.devicePixelRatio;
+    }
+    window.addEventListener('resize', resizeOsc);
+    resizeOsc();
+
+    let ws = null;
+    function initWebSocket() {
+      const loc = window.location;
+      const wsUri = (loc.protocol === 'https:' ? 'wss://' : 'ws://') + loc.host + '/ws';
+      ws = new WebSocket(wsUri);
+
+      ws.onopen = () => {
+        appendLog('[SYSTEM] WebSocket connected to backend defense engine.', 'INFO');
+        fetchPorts();
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'snapshot') {
+          handleSnapshot(msg.data);
+        } else if (msg.type === 'log') {
+          appendLog(msg.data.entry, msg.data.level);
+        }
+      };
+
+      ws.onclose = () => {
+        appendLog('[SYSTEM] WebSocket disconnected. Reconnecting in 2s...', 'WARN');
+        setTimeout(initWebSocket, 2000);
+      };
+    }
+
+    async function fetchPorts() {
+      try {
+        const res = await fetch('/api/ports');
+        const data = await res.json();
+        portSelect.innerHTML = '';
+        data.ports.forEach((p) => {
+          const opt = document.createElement('option');
+          opt.value = p.port;
+          opt.textContent = `${p.port} - ${p.description}`;
+          if (p.port.includes('COM7')) opt.selected = true;
+          portSelect.appendChild(opt);
+        });
+        if (data.ports.length === 0) {
+          const opt = document.createElement('option');
+          opt.value = 'COM7';
+          opt.textContent = 'COM7 (Virtual / Not Connected)';
+          portSelect.appendChild(opt);
+        }
+      } catch (e) {}
+    }
+    btnScanPorts.addEventListener('click', fetchPorts);
+
+    btnConnect.addEventListener('click', async () => {
+      if (isConnected) {
+        await fetch('/api/disconnect', { method: 'POST' });
+      } else {
+        const port = portSelect.value;
+        const baud = parseInt(baudSelect.value);
+        const sim = chkSimMode.checked;
+        await fetch('/api/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ port, baud, simulation: sim })
+        });
+      }
+    });
+
+    btnTriggerPhysical.addEventListener('click', async () => {
+      const res = await fetch('/api/trigger_button', { method: 'POST' });
+      const data = await res.json();
+      isAttacking = data.active;
+      btnTriggerPhysical.textContent = isAttacking ? '⚡ RELEASE BUTTON (RESTORE)' : '⚡ PRESS BUTTON (CHANGE CURRENT)';
+    });
+
+    btnToggleDefense.addEventListener('click', async () => {
+      const res = await fetch('/api/toggle_defense', { method: 'POST' });
+      const data = await res.json();
+      isDefending = data.active;
+      btnToggleDefense.textContent = isDefending ? '🛡️ POWER MASKING: ON' : '🛡️ POWER MASKING: OFF';
+      btnToggleDefense.className = isDefending ? 'btn-defense' : '';
+    });
+
+    chkAutoDefense.addEventListener('change', async () => {
+      await fetch('/api/auto_defense', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: chkAutoDefense.checked })
+      });
+    });
+
+    numThreshold.addEventListener('change', async () => {
+      const val = parseFloat(numThreshold.value);
+      await fetch('/api/threshold', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threshold: val })
+      });
+    });
+
+    document.getElementById('btnClearLog').addEventListener('click', () => { terminalBox.innerHTML = ''; });
+    document.getElementById('btnExportLog').addEventListener('click', () => {
+      const text = terminalBox.innerText;
+      const blob = new Blob([text], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `SCA_Defense_Log_${Date.now()}.txt`;
+      a.click();
+    });
+
+    function handleSnapshot(d) {
+      cachedSnapshot = d;
+      isConnected = d.is_running;
+
+      btnConnect.textContent = isConnected ? 'DISCONNECT' : 'CONNECT ESP32';
+      btnConnect.className = isConnected ? 'btn-danger' : 'btn-primary';
+
+      statusPill.className = 'status-pill';
+      if (!isConnected) {
+        statusPill.textContent = '● SYSTEM OFFLINE';
+        statusPill.style.color = 'var(--text-muted)';
+      } else if (d.state === 'CONNECTING') {
+        statusPill.textContent = '◌ CONNECTING...';
+        statusPill.className = 'status-pill training';
+      } else if (d.state === 'TRAINING') {
+        statusPill.textContent = `⚙ BASELINE CALIBRATION [${d.training_progress.window}/${d.training_progress.total}]`;
+        statusPill.className = 'status-pill training';
+      } else if (d.state === 'DEFENSE_ACTIVE' || d.defense_active) {
+        statusPill.textContent = '🛡️ DEFENSE ACTIVE: POWER MASKING ON (KEY SHIELDED)';
+        statusPill.className = 'status-pill defense';
+      } else if (d.state === 'ATTACK_DETECTED') {
+        statusPill.textContent = '🚨 ATTACK DETECTED: PHYSICAL CURRENT CHANGE!';
+        statusPill.className = 'status-pill alert';
+      } else if (d.state === 'SECURE') {
+        statusPill.textContent = '🛡️ SYSTEM SECURE • KEY SAFE';
+        statusPill.className = 'status-pill secure';
+      }
+
+      liveCurrent.textContent = `${d.current_mA.toFixed(2)} mA`;
+      if (d.defense_active || d.state === 'DEFENSE_ACTIVE') {
+        liveCurrent.className = 'current-value defense';
+      } else if (d.state === 'ATTACK_DETECTED') {
+        liveCurrent.className = 'current-value alert';
+      } else {
+        liveCurrent.className = 'current-value';
+      }
+
+      const pct = Math.min(Math.max(d.current_mA / 220, 0), 1) * 100;
+      meterFill.style.width = `${pct}%`;
+      if (d.defense_active || d.state === 'DEFENSE_ACTIVE') meterFill.className = 'meter-fill defense';
+      else if (d.state === 'ATTACK_DETECTED') meterFill.className = 'meter-fill alert';
+      else meterFill.className = 'meter-fill';
+
+      if (d.defense_active || d.state === 'DEFENSE_ACTIVE') {
+        valDefenseState.textContent = 'MASKING ACTIVE 🛡️';
+        valDefenseState.style.color = 'var(--cyan-line)';
+        valCorrelation.textContent = `${d.hacker_correlation}% (UNBREAKABLE)`;
+        valCorrelation.style.color = 'var(--neon-green)';
+        valKeySecurity.textContent = 'SHIELDED & MASKED 🛡️';
+        valKeySecurity.style.color = 'var(--cyan-line)';
+        valMaskingNoise.textContent = '+35 mA Jitter Noise';
+        valMaskingNoise.style.color = 'var(--cyan-line)';
+      } else if (d.state === 'ATTACK_DETECTED') {
+        valDefenseState.textContent = 'ALERT: NO MASKING';
+        valDefenseState.style.color = 'var(--alert-red)';
+        valCorrelation.textContent = `${d.hacker_correlation}% (CRITICAL LEAK!)`;
+        valCorrelation.style.color = 'var(--alert-red)';
+        valKeySecurity.textContent = 'VULNERABLE TO SNOOPING!';
+        valKeySecurity.style.color = 'var(--alert-red)';
+        valMaskingNoise.textContent = '0.00 mA';
+        valMaskingNoise.style.color = 'var(--text-muted)';
+      } else {
+        valDefenseState.textContent = 'ARMED (STANDBY)';
+        valDefenseState.style.color = 'var(--neon-mint)';
+        valCorrelation.textContent = '1.2% (SAFE)';
+        valCorrelation.style.color = 'var(--neon-green)';
+        valKeySecurity.textContent = 'SECURE & SAFE';
+        valKeySecurity.style.color = 'var(--neon-mint)';
+        valMaskingNoise.textContent = '0.00 mA (Idle)';
+        valMaskingNoise.style.color = 'var(--text-muted)';
+      }
+
+      if (d.baseline_mean !== null) valBaseline.textContent = `${d.baseline_mean.toFixed(2)} mA`;
+      valDelta.textContent = `${d.delta_mA >= 0 ? '+' : ''}${d.delta_mA.toFixed(2)} mA`;
+      valLimit.textContent = `≥ ${d.min_change_ma.toFixed(2)} mA`;
+
+      if (d.defense_active || d.state === 'DEFENSE_ACTIVE' || d.state === 'ATTACK_DETECTED') {
+        valProtocol.textContent = "Sent: b'1' (Defense ON)";
+        valProtocol.style.color = 'var(--cyan-line)';
+      } else {
+        valProtocol.textContent = "Sent: b'0' (Secure)";
+        valProtocol.style.color = 'var(--neon-green)';
+      }
+
+      valRate.textContent = `${d.rate_hz} Hz (${d.sample_count} pkts)`;
+
+      renderOscilloscope(d);
+      renderOledMirror(d);
+    }
+
+    function renderOscilloscope(d) {
+      const c = oscCanvas;
+      const ctx = oscCtx;
+      const w = c.width;
+      const h = c.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      const marginLeft = 60 * window.devicePixelRatio;
+      const marginRight = 20 * window.devicePixelRatio;
+      const marginTop = 30 * window.devicePixelRatio;
+      const marginBottom = 30 * window.devicePixelRatio;
+      const plotW = w - marginLeft - marginRight;
+      const plotH = h - marginTop - marginBottom;
+
+      const maxY = 200.0;
+      const ySteps = [0, 50, 100, 150, 200];
+
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#0d2418';
+      ctx.setLineDash([4, 4]);
+      ctx.font = `${10 * window.devicePixelRatio}px Consolas`;
+      ctx.fillStyle = '#4e8a65';
+      ctx.textAlign = 'right';
+
+      ySteps.forEach(ma => {
+        const y = marginTop + (plotH * (1 - (ma / maxY)));
+        ctx.beginPath();
+        ctx.moveTo(marginLeft, y);
+        ctx.lineTo(w - marginRight, y);
+        ctx.stroke();
+        ctx.fillText(`${ma} mA`, marginLeft - 8, y + 4);
+      });
+
+      if (d.baseline_mean !== null && d.baseline_mean > 0) {
+        const yBase = marginTop + (plotH * (1 - (d.baseline_mean / maxY)));
+        ctx.strokeStyle = '#00e5ff';
+        ctx.setLineDash([6, 3]);
+        ctx.beginPath();
+        ctx.moveTo(marginLeft, yBase);
+        ctx.lineTo(w - marginRight, yBase);
+        ctx.stroke();
+
+        ctx.fillStyle = '#00e5ff';
+        ctx.textAlign = 'left';
+        ctx.fillText(`Baseline ${d.baseline_mean.toFixed(1)}mA`, marginLeft + 8, yBase - 6);
+      }
+
+      const data = d.graph_data;
+      if (data && data.length >= 2) {
+        const isDefending = (d.defense_active || d.state === 'DEFENSE_ACTIVE');
+        const isAlert = (d.state === 'ATTACK_DETECTED');
+        const traceColor = isDefending ? '#00e5ff' : (isAlert ? '#ff2244' : '#00ff66');
+        const fillColor = isDefending ? 'rgba(0, 229, 255, 0.15)' : (isAlert ? 'rgba(255, 34, 68, 0.15)' : 'rgba(0, 255, 102, 0.12)');
+
+        ctx.setLineDash([]);
+        const stepX = plotW / Math.max(data.length - 1, 1);
+
+        ctx.beginPath();
+        ctx.moveTo(marginLeft, marginTop + plotH);
+        data.forEach((val, i) => {
+          const x = marginLeft + (i * stepX);
+          const clamped = Math.min(Math.max(val, 0), maxY);
+          const y = marginTop + (plotH * (1 - (clamped / maxY)));
+          ctx.lineTo(x, y);
+        });
+        ctx.lineTo(marginLeft + plotW, marginTop + plotH);
+        ctx.closePath();
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+
+        ctx.beginPath();
+        data.forEach((val, i) => {
+          const x = marginLeft + (i * stepX);
+          const clamped = Math.min(Math.max(val, 0), maxY);
+          const y = marginTop + (plotH * (1 - (clamped / maxY)));
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.strokeStyle = traceColor;
+        ctx.lineWidth = 2.5 * window.devicePixelRatio;
+        ctx.shadowColor = traceColor;
+        ctx.shadowBlur = 8;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function renderOledMirror(d) {
+      const c = oledCanvas;
+      const ctx = oledCtx;
+      const w = 256;
+      const h = 128;
+      const isDefending = (d.defense_active || d.state === 'DEFENSE_ACTIVE' || d.state === 'ATTACK_DETECTED');
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, w, h);
+
+      if (isDefending) {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, w, 28);
+        ctx.fillStyle = '#000000';
+        ctx.font = 'bold 12px Consolas';
+        ctx.textAlign = 'center';
+        ctx.fillText('! DEFENSE: MASKING !', w / 2, 19);
+      } else {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 11px Consolas';
+        ctx.textAlign = 'left';
+        ctx.fillText('ML STATUS: SECURE', 10, 18);
+        ctx.textAlign = 'right';
+        ctx.fillText(`${Math.round(d.current_mA)}mA`, w - 10, 18);
+      }
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 10px Consolas';
+      ctx.textAlign = 'left';
+      ctx.fillText(isDefending ? 'KEY: PROTECTED 🛡️' : 'KEY: IDLE', 10, 46);
+
+      ctx.font = '10px Consolas';
+      ctx.textAlign = 'right';
+      ctx.fillText(d.attacker_active ? 'ATTACK: ON [PROBE]' : 'ATTACK: OFF', w - 10, 46);
+
+      const oledData = d.oled_data;
+      if (oledData && oledData.length >= 2) {
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        const maxOledY = 200.0;
+        const gTop = 56;
+        const gBottom = 120;
+        const gHeight = gBottom - gTop;
+        const step = w / 128;
+
+        oledData.forEach((val, i) => {
+          const clamped = Math.min(Math.max(val, 0), maxOledY);
+          const y = gBottom - ((clamped / maxOledY) * gHeight);
+          const x = i * step;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      }
+    }
+
+    function appendLog(text, level) {
+      const div = document.createElement('div');
+      div.className = `log-line ${level || 'INFO'}`;
+      div.textContent = text;
+      terminalBox.appendChild(div);
+      terminalBox.scrollTop = terminalBox.scrollHeight;
+    }
+
+    initWebSocket();
+  </script>
+</body>
+</html>
