@@ -241,7 +241,7 @@ class CyberpunkGUI:
         # Physical Attack Button (Current Change Trigger)
         self.btn_attack = tk.Button(
             bar,
-            text="⚡ PRESS BUTTON (CHANGE CURRENT)",
+            text="⚡ INJECT ATTACK (CHANGE CURRENT)",
             font=("Consolas", 9, "bold"),
             fg="#FFAAAA",
             bg="#3D0B12",
@@ -254,12 +254,28 @@ class CyberpunkGUI:
             pady=3,
             command=self._toggle_physical_change
         )
-        self.btn_attack.pack(side=tk.LEFT, padx=8, pady=8)
+        self.btn_attack.pack(side=tk.LEFT, padx=6, pady=8)
+
+        # Force Safe Mode Button (Always cleanly turns off disturbance & restores safe state)
+        self.btn_safe = tk.Button(
+            bar,
+            text="🛡️ SAFE MODE (TURN OFF)",
+            font=("Consolas", 9, "bold"),
+            fg="#050806",
+            bg="#00FF66",
+            activebackground="#33FF88",
+            activeforeground="#050806",
+            relief=tk.FLAT,
+            padx=10,
+            pady=3,
+            command=self._force_safe_mode
+        )
+        self.btn_safe.pack(side=tk.LEFT, padx=6, pady=8)
 
         # Active Power Masking Countermeasure Toggle
         self.btn_defense = tk.Button(
             bar,
-            text="🛡️ POWER MASKING: ON",
+            text="🛡️ MASKING: ON",
             font=("Consolas", 9, "bold"),
             fg=BG_DEEP,
             bg=CYAN_LINE,
@@ -270,7 +286,7 @@ class CyberpunkGUI:
             pady=3,
             command=self._toggle_defense
         )
-        self.btn_defense.pack(side=tk.LEFT, padx=8, pady=8)
+        self.btn_defense.pack(side=tk.LEFT, padx=6, pady=8)
 
         # Auto-Defense Checkbox
         chk_auto = tk.Checkbutton(
@@ -636,6 +652,12 @@ class CyberpunkGUI:
     def _append_terminal(self, text: str, level: str = "DEFAULT"):
         tag = level if level in ("ALERT", "SUCCESS", "TRAIN", "WARN", "ERROR") else "DEFAULT"
         self.term_text.insert(tk.END, text + "\n", tag)
+        try:
+            line_count = int(self.term_text.index('end-1c').split('.')[0])
+            if line_count > 250:
+                self.term_text.delete('1.0', '50.0')
+        except Exception:
+            pass
         if self.autoscroll_var.get():
             self.term_text.see(tk.END)
 
@@ -710,10 +732,30 @@ class CyberpunkGUI:
             return
 
         is_active = self.engine.trigger_physical_change()
+        self._sync_attack_button(is_active)
+
+    def _force_safe_mode(self):
+        """Force the system into safe / secure mode and turn off disturbance."""
+        if not self.engine.is_running:
+            messagebox.showinfo("Not Connected", "Please connect to ESP32 or start Simulation Mode first.")
+            return
+
+        self.engine.reset_to_safe()
+        self._sync_attack_button(False)
+
+    def _sync_attack_button(self, is_active: bool):
         if is_active:
-            self.btn_attack.configure(text="⚡ RELEASE BUTTON (RESTORE)", bg=ALERT_RED, fg=TEXT_WHITE)
+            self.btn_attack.configure(
+                text="⚡ TURN OFF ATTACK (RESTORE NORMAL)",
+                bg=ALERT_RED,
+                fg=TEXT_WHITE
+            )
         else:
-            self.btn_attack.configure(text="⚡ PRESS BUTTON (CHANGE CURRENT)", bg="#3D0B12", fg="#FFAAAA")
+            self.btn_attack.configure(
+                text="⚡ INJECT ATTACK (CHANGE CURRENT)",
+                bg="#3D0B12",
+                fg="#FFAAAA"
+            )
 
     def _toggle_defense(self):
         """Manually toggle dynamic power masking defense."""
@@ -804,6 +846,7 @@ class CyberpunkGUI:
             self.lbl_entropy_val.configure(text="0.00 mA (Idle)", fg=TEXT_MUTED)
 
         # 3. Baseline & Delta
+        self._sync_attack_button(self.cached_attacker)
         if self.cached_baseline > 0.0:
             self.lbl_base_val.configure(text=f"{self.cached_baseline:.2f} mA")
         else:

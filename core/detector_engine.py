@@ -81,9 +81,6 @@ class DetectorEngine:
         # =====================================================================
         # ACTIVE POWER MASKING & COUNTERMEASURE DEFENSE (Core Feature)
         # =====================================================================
-        # When current changes (e.g. from attack or button), the defense activates
-        # and changes the current again (pseudo-random power masking) to destroy
-        # the correlation between secret cryptographic keys and power traces!
         self.defense_active: bool = False
         self.auto_defense: bool = True               # Auto-engage countermeasure on attack
         self.hacker_correlation: float = 1.2          # % correlation (Low = Protected)
@@ -137,7 +134,7 @@ class DetectorEngine:
         entry = f"[{timestamp}] [{level}] {message}"
         with self._lock:
             self.log_history.append(entry)
-            if len(self.log_history) > 1000:
+            if len(self.log_history) > 500:
                 self.log_history.pop(0)
         self._broadcast("log", {"entry": entry, "message": message, "level": level, "timestamp": timestamp})
 
@@ -189,7 +186,7 @@ class DetectorEngine:
 
         if self.simulation_mode:
             self.state = SystemState.CONNECTING
-            self.log(f"Starting Virtual ESP32 Hardware Simulator with Power Masking Engine...", "SETUP")
+            self.log("Starting Virtual ESP32 Hardware Simulator with Power Masking...", "SETUP")
             self._thread = threading.Thread(target=self._run_simulation, daemon=True)
             self._thread.start()
         else:
@@ -217,6 +214,8 @@ class DetectorEngine:
 
         self.state = SystemState.DISCONNECTED
         self.defense_active = False
+        self._sim_attack_active = False
+        self.attacker_active = False
         self.log("Detector stopped. Connection closed.", "INFO")
         self._broadcast("state_change", {"state": self.state})
 
@@ -234,6 +233,7 @@ class DetectorEngine:
             self.change_from_baseline = 0.0
             self.svm_prediction = 1
             self.attacker_active = False
+            self._sim_attack_active = False
             self.defense_active = False
             self.hacker_correlation = 1.2
             self.masking_entropy = 0.0
@@ -262,18 +262,47 @@ class DetectorEngine:
         """Simulate pressing the hardware button that changes physical current."""
         self._sim_attack_active = not self._sim_attack_active
         if self._sim_attack_active:
-            self.log("[PHYSICAL BUTTON PRESSED] Physical current change initiated! (Side-Channel Snooping Spike)", "ALERT")
-            # If auto-defense is enabled, automatically activate current masking!
+            self.attacker_active = True
+            self.log("[PHYSICAL BUTTON PRESSED] Physical current change initiated! (+50mA Spike)", "ALERT")
             if self.auto_defense:
                 self.defense_active = True
-                self.log("[COUNTERMEASURE ENGAGED] Auto-defense triggered: Activating Dynamic Power Masking to change current again!", "SUCCESS")
+                self.log("[COUNTERMEASURE ENGAGED] Auto-defense triggered: Activating Dynamic Power Masking!", "SUCCESS")
                 self._write_serial(b"1")
         else:
-            self.log("[PHYSICAL BUTTON RELEASED] Physical disturbance ended.", "INFO")
-            self.defense_active = False
-            self._write_serial(b"0")
+            # TURNING OFF -> Immediately restore safe state and flush buffers!
+            self.reset_to_safe()
 
         return self._sim_attack_active
+
+    def reset_to_safe(self):
+        """Force the system into SECURE / SAFE state immediately."""
+        self.log("[SAFE BUTTON PRESSED] System restored to SECURE state. Disturbance stopped.", "SUCCESS")
+        self._sim_attack_active = False
+        self.attacker_active = False
+        self.defense_active = False
+        self.last_result = 0
+        self.hacker_correlation = 1.2
+        self.masking_entropy = 0.0
+        self.secret_key_status = "SECURE / IDLE"
+
+        # Flush sliding buffer with normal baseline so it does not falsely re-trigger!
+        base_val = self.baseline_mean if (self.baseline_mean is not None and self.baseline_mean > 0) else 24.5
+        with self._lock:
+            self.data_buffer.clear()
+            for _ in range(self.window_size):
+                self.data_buffer.append(base_val)
+            self.current_mA = base_val
+            self.window_mean = base_val
+            self.change_from_baseline = 0.0
+            self.svm_prediction = 1
+            if self.is_trained:
+                self.state = SystemState.SECURE
+
+        # Tell hardware ESP32 to immediately show STATUS: SECURE
+        self._write_serial(b"0")
+        self._broadcast("state_change", {"state": self.state})
+        self._broadcast("attacker_signal", {"active": False})
+        self._broadcast("defense_change", {"active": False})
 
     def toggle_defense(self) -> bool:
         """Manually toggle the Active Power Masking countermeasure."""
@@ -361,9 +390,8 @@ class DetectorEngine:
         sim_index = 0
         while self.is_running:
             sim_index += 1
-            now = time.time()
 
-            # 1. Base Idle Power Draw
+            # 1. Base Idle Power Draw (~24.5 mA)
             drift = 0.3 * math.sin(sim_index * 0.05)
             noise = random.gauss(0, 0.35)
             sim_current = self._sim_baseline_target + drift + noise
@@ -374,10 +402,7 @@ class DetectorEngine:
                 sim_current += 50.0 + (5.0 * math.sin(sim_index * 0.2))
 
                 # 3. Active Power Masking Countermeasure:
-                # Changes the current AGAIN with pseudo-random high-frequency noise
-                # to obfuscate the cryptographic power pattern!
                 if self.defense_active:
-                    # Injects dynamic jitter noise (+25 mA to +65 mA with high entropy)
                     masking_jitter = 35.0 + random.uniform(-18.0, 22.0) + (15.0 * math.sin(sim_index * 0.8))
                     sim_current += masking_jitter
                     self.masking_entropy = masking_jitter
@@ -389,8 +414,8 @@ class DetectorEngine:
             line_str = f"{sim_current:.2f}"
             self._process_incoming_line(line_str)
 
-            # ~40 Hz sample rate (25 ms interval)
-            time.sleep(0.025)
+            # ~30 Hz sample rate (33 ms interval)
+            time.sleep(0.033)
 
     # -------------------------------------------------------------------------
     # Core Stream Processing & ML Logic
@@ -408,11 +433,8 @@ class DetectorEngine:
             return
 
         if raw_line == "ATTACK_OFF":
-            self.attacker_active = False
-            self.defense_active = False
             self.log(">>> HARDWARE: Physical Current Disturbance Ended (Button / Signal LOW)", "INFO")
-            self._write_serial(b"0")
-            self._broadcast("attacker_signal", {"active": False})
+            self.reset_to_safe()
             return
 
         if raw_line in ("DEFENSE_ON", "MASKING_ACTIVE"):
@@ -493,12 +515,12 @@ class DetectorEngine:
                 self.is_trained = True
                 self.state = SystemState.SECURE
 
-                self.log(f"============================================================", "SUCCESS")
-                self.log(f"  AI ENGINE READY • BASELINE CALIBRATED • DEFENSE ACTIVE", "SUCCESS")
+                self.log("============================================================", "SUCCESS")
+                self.log("  AI ENGINE READY • BASELINE CALIBRATED • DEFENSE ARMED", "SUCCESS")
                 self.log(f"Idle Current Baseline: {self.baseline_mean:.2f} mA (±{self.baseline_std:.2f} mA)", "SUCCESS")
                 self.log(f"Physical Change Threshold: ≥ {self.min_change_ma:.2f} mA from baseline", "SUCCESS")
-                self.log(f"Dynamic Power Masking: ACTIVE DEFENSE ARMED 🛡️", "SUCCESS")
-                self.log(f"============================================================", "SUCCESS")
+                self.log("Dynamic Power Masking: ACTIVE DEFENSE ARMED 🛡️", "SUCCESS")
+                self.log("============================================================", "SUCCESS")
 
                 self._write_serial(b"0")
                 self.last_result = 0
@@ -530,6 +552,7 @@ class DetectorEngine:
             (self.svm_prediction == -1 and self.change_from_baseline >= self.min_change_ma)
             or (self.current_mA > (self.baseline_mean or 24.0) + self.min_change_ma)
             or self.attacker_active
+            or self._sim_attack_active
         )
 
         if is_current_changed:
@@ -538,7 +561,7 @@ class DetectorEngine:
                 self.defense_active = True
 
             if self.defense_active:
-                # With Active Power Masking: Correlation drops to near zero!
+                # Active Power Masking: Correlation drops to near zero!
                 self.state = SystemState.DEFENSE_ACTIVE
                 self.hacker_correlation = round(random.uniform(2.1, 4.8), 1)
                 self.secret_key_status = "SHIELDED / MASKED (Correlation Destroyed)"
@@ -548,7 +571,6 @@ class DetectorEngine:
                     self.log("   🚨 PHYSICAL CURRENT CHANGE DETECTED (SIDE-CHANNEL PROBE)   ", "ALERT")
                     self.log(f"Detected Current: {self.current_mA:.2f} mA (Delta: +{self.change_from_baseline:.2f} mA)", "ALERT")
                     self.log("   🛡️ ACTIVE DEFENSE ENGAGED: POWER MASKING ACTIVATED!       ", "SUCCESS")
-                    self.log("Action: Current altered again via pseudo-random jitter injection.", "SUCCESS")
                     self.log(f"Hacker Correlation Dropped to: {self.hacker_correlation}% (ATTACK IMPOSSIBLE!)", "SUCCESS")
                     self.log("Action: Sent byte b'1' -> ESP32 OLED updated to '! DEFENSE: MASKING !'", "SUCCESS")
                     self.log("============================================================", "SUCCESS")
@@ -567,7 +589,6 @@ class DetectorEngine:
                     self.log("   🚨 !!! SIDE-CHANNEL ATTACK DETECTED (NO DEFENSE) !!!   ", "ALERT")
                     self.log(f"Detected Current: {self.current_mA:.2f} mA (Delta: +{self.change_from_baseline:.2f} mA)", "ALERT")
                     self.log(f"Hacker Correlation: {self.hacker_correlation}% [VULNERABLE]", "ALERT")
-                    self.log("Warning: Power Masking Countermeasure is currently DISABLED!", "WARN")
                     self.log("============================================================", "ALERT")
                     self._broadcast("state_change", {"state": self.state})
 
@@ -580,8 +601,7 @@ class DetectorEngine:
                 self.defense_active = False
                 self.hacker_correlation = round(random.uniform(0.8, 2.0), 1)
                 self.secret_key_status = "SECURE / IDLE (Normal Baseline)"
-                self.log(f"SYSTEM STATUS: SECURE (Current restored to {self.window_mean:.2f} mA, delta: {self.change_from_baseline:.2f} mA)", "SUCCESS")
-                self.log("Action: Sent byte b'0' -> ESP32 OLED updated to 'ML STATUS: SECURE'", "INFO")
+                self.log(f"SYSTEM STATUS: SECURE (Current restored to {self.window_mean:.2f} mA)", "SUCCESS")
                 self._broadcast("state_change", {"state": self.state})
 
             self._write_serial(b"0")
@@ -595,7 +615,7 @@ class DetectorEngine:
             "delta_mA": self.change_from_baseline,
             "svm_prediction": self.svm_prediction,
             "is_anomaly": is_current_changed,
-            "attacker_active": self.attacker_active,
+            "attacker_active": self.attacker_active or self._sim_attack_active,
             "defense_active": self.defense_active,
             "hacker_correlation": self.hacker_correlation,
             "secret_key_status": self.secret_key_status,
@@ -614,7 +634,6 @@ class DetectorEngine:
         with self._lock:
             graph_list = list(self.graph_buffer)
             oled_list = list(self.oled_buffer)
-            recent_logs = list(self.log_history[-100:])
 
         return {
             "state": self.state,
@@ -628,7 +647,7 @@ class DetectorEngine:
             "baseline_std": round(self.baseline_std, 2) if self.baseline_std is not None else None,
             "delta_mA": round(self.change_from_baseline, 2),
             "svm_prediction": self.svm_prediction,
-            "attacker_active": self.attacker_active,
+            "attacker_active": self.attacker_active or self._sim_attack_active,
             "defense_active": self.defense_active,
             "auto_defense": self.auto_defense,
             "hacker_correlation": self.hacker_correlation,
@@ -645,5 +664,4 @@ class DetectorEngine:
             },
             "graph_data": graph_list,
             "oled_data": oled_list,
-            "recent_logs": recent_logs
         }

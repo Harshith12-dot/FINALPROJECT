@@ -12,7 +12,6 @@ from typing import Dict, Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 
@@ -21,7 +20,6 @@ from core.detector_engine import DetectorEngine, SystemState
 
 app = FastAPI(title="AI-SCA Side-Channel Attack Detector & Defense")
 
-# Mount templates & static
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(CURRENT_DIR, "templates")
 
@@ -30,6 +28,7 @@ engine = DetectorEngine()
 
 # Active WebSocket connections
 active_connections: list[WebSocket] = []
+main_loop: asyncio.AbstractEventLoop = None
 
 
 class ConnectPayload(BaseModel):
@@ -98,9 +97,16 @@ async def api_retrain():
 
 @app.post("/api/trigger_button")
 async def api_trigger_button():
-    """Simulate physical button press that changes current."""
+    """Toggle physical disturbance button."""
     is_active = engine.trigger_physical_change()
-    return {"status": "triggered", "active": is_active}
+    return {"status": "triggered", "active": is_active, "state": engine.state}
+
+
+@app.post("/api/reset_safe")
+async def api_reset_safe():
+    """Instantly force the system into SAFE / SECURE mode."""
+    engine.reset_to_safe()
+    return {"status": "safe", "active": False, "state": engine.state}
 
 
 @app.post("/api/toggle_defense")
@@ -128,7 +134,7 @@ async def api_snapshot():
 
 
 # -----------------------------------------------------------------------------
-# WEBSOCKET STREAM ROUTE (~30 Hz TELEMETRY BROADCAST)
+# WEBSOCKET STREAM ROUTE (~22 Hz TELEMETRY BROADCAST - SMOOTH & NO STRACKING)
 # -----------------------------------------------------------------------------
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -138,7 +144,7 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             snapshot = engine.get_snapshot()
             await websocket.send_text(json.dumps({"type": "snapshot", "data": snapshot}))
-            await asyncio.sleep(0.033)  # ~30 FPS
+            await asyncio.sleep(0.045)  # ~22 FPS - Smooth, low latency, zero UI freezing
     except WebSocketDisconnect:
         if websocket in active_connections:
             active_connections.remove(websocket)
@@ -150,8 +156,6 @@ async def websocket_endpoint(websocket: WebSocket):
 # -----------------------------------------------------------------------------
 # SERVER RUNNER
 # -----------------------------------------------------------------------------
-main_loop: asyncio.AbstractEventLoop = None
-
 def run_web(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = True):
     global main_loop
     import threading
@@ -160,7 +164,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = True
     print("  AI SIDE-CHANNEL DETECTOR & POWER MASKING // CYBERPUNK WEB UI")
     print("=" * 65)
     print(f"Server URL: http://{host}:{port}")
-    print("Dynamic Power Masking • Live INA219 Oscilloscope • SSD1306 Mirror")
+    print("Dynamic Power Masking • Real-time INA219 Oscilloscope • SSD1306 Mirror")
     print("=" * 65)
 
     if open_browser:

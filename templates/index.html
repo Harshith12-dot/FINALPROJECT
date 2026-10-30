@@ -37,7 +37,6 @@
       overflow-x: hidden;
     }
 
-    /* Header */
     header {
       background-color: var(--bg-panel);
       border-bottom: 1px solid var(--border-green);
@@ -48,7 +47,7 @@
     }
 
     .title-box h1 {
-      font-size: 1.25rem;
+      font-size: 1.22rem;
       color: var(--neon-green);
       letter-spacing: 1px;
       display: flex;
@@ -86,7 +85,6 @@
       color: var(--cyan-line);
       border-color: var(--cyan-line);
       box-shadow: 0 0 14px rgba(0, 229, 255, 0.4);
-      animation: pulseDefense 1.2s infinite alternate;
     }
 
     .status-pill.training {
@@ -103,17 +101,11 @@
       animation: flashPulse 1s infinite alternate;
     }
 
-    @keyframes pulseDefense {
-      0% { opacity: 0.9; transform: scale(1.0); }
-      100% { opacity: 1; transform: scale(1.02); }
-    }
-
     @keyframes flashPulse {
       0% { opacity: 0.9; }
       100% { opacity: 1; transform: scale(1.02); }
     }
 
-    /* Toolbar */
     .toolbar {
       background: var(--bg-panel);
       border-bottom: 1px solid var(--border-green);
@@ -121,7 +113,7 @@
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
 
     .control-group {
@@ -140,7 +132,7 @@
       background: var(--bg-panel-alt);
       border: 1px solid var(--border-green);
       color: var(--neon-green);
-      padding: 4px 8px;
+      padding: 5px 8px;
       border-radius: 3px;
       font-family: inherit;
       outline: none;
@@ -190,6 +182,19 @@
       color: #fff;
     }
 
+    button.btn-safe {
+      background: #092e16;
+      color: #33ff88;
+      border: 1px solid #00ff66;
+      box-shadow: 0 0 8px rgba(0, 255, 102, 0.25);
+    }
+
+    button.btn-safe:hover {
+      background: #00ff66;
+      color: #050806;
+      box-shadow: 0 0 12px rgba(0, 255, 102, 0.5);
+    }
+
     button.btn-defense {
       background: #082930;
       color: var(--cyan-line);
@@ -210,7 +215,6 @@
       font-weight: bold;
     }
 
-    /* Main Container Grid */
     .dashboard-grid {
       display: grid;
       grid-template-columns: 2fr 1fr;
@@ -267,7 +271,6 @@
       height: 340px;
     }
 
-    /* HUD Metrics Cards */
     .hud-cards {
       display: flex;
       flex-direction: column;
@@ -328,7 +331,6 @@
     .hud-label { color: var(--text-muted); }
     .hud-val { font-weight: bold; color: var(--text-white); }
 
-    /* Lower Section */
     .lower-grid {
       grid-column: 1 / -1;
       display: grid;
@@ -431,15 +433,18 @@
       🧪 SIMULATOR MODE
     </label>
 
-    <!-- Physical Button Trigger -->
-    <button id="btnTriggerPhysical" class="btn-danger">⚡ PRESS BUTTON (CHANGE CURRENT)</button>
+    <!-- Physical Disturbance Button (Attack Trigger) -->
+    <button id="btnTriggerPhysical" class="btn-danger">⚡ INJECT ATTACK (CHANGE CURRENT)</button>
+
+    <!-- Prominent Safe Button: Instantly guarantees turning off attack and restoring safe mode -->
+    <button id="btnForceSafe" class="btn-safe">🛡️ SAFE MODE (TURN OFF)</button>
 
     <!-- Dynamic Power Masking Toggle -->
-    <button id="btnToggleDefense" class="btn-defense">🛡️ POWER MASKING: ON</button>
+    <button id="btnToggleDefense" class="btn-defense">🛡️ MASKING: ON</button>
 
     <label class="checkbox-label" style="font-size: 0.8rem; color: var(--neon-mint);">
       <input type="checkbox" id="chkAutoDefense" checked>
-      Auto-Mask Current on Attack
+      Auto-Mask on Attack
     </label>
 
     <div class="control-group" style="margin-left: auto;">
@@ -566,15 +571,16 @@
 
   <!-- Footer -->
   <footer>
-    <div id="footerStatus">Ready. Press button to change current; system will detect and scramble current again to prevent attack.</div>
-    <div>AI-SCA Power Masking Defense System v2.1 • Differential Power Analysis Countermeasure</div>
+    <div id="footerStatus">Ready. Press button to test current change; system detects and scrambles current to prevent attack. Click SAFE MODE to turn off anytime.</div>
+    <div>AI-SCA Power Masking Defense System v2.2 • Active Countermeasure</div>
   </footer>
 
   <script>
     let isConnected = false;
     let isAttacking = false;
     let isDefending = true;
-    let cachedSnapshot = null;
+    let latestSnapshot = null;
+    let animFrameRequested = false;
 
     const statusPill = document.getElementById('statusPill');
     const portSelect = document.getElementById('portSelect');
@@ -583,6 +589,7 @@
     const chkSimMode = document.getElementById('chkSimMode');
     const btnScanPorts = document.getElementById('btnScanPorts');
     const btnTriggerPhysical = document.getElementById('btnTriggerPhysical');
+    const btnForceSafe = document.getElementById('btnForceSafe');
     const btnToggleDefense = document.getElementById('btnToggleDefense');
     const chkAutoDefense = document.getElementById('chkAutoDefense');
     const numThreshold = document.getElementById('numThreshold');
@@ -607,12 +614,14 @@
 
     function resizeOsc() {
       const rect = oscCanvas.getBoundingClientRect();
-      oscCanvas.width = rect.width * window.devicePixelRatio;
-      oscCanvas.height = rect.height * window.devicePixelRatio;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      oscCanvas.width = rect.width * dpr;
+      oscCanvas.height = rect.height * dpr;
     }
     window.addEventListener('resize', resizeOsc);
     resizeOsc();
 
+    // WebSocket Management
     let ws = null;
     function initWebSocket() {
       const loc = window.location;
@@ -625,12 +634,19 @@
       };
 
       ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'snapshot') {
-          handleSnapshot(msg.data);
-        } else if (msg.type === 'log') {
-          appendLog(msg.data.entry, msg.data.level);
-        }
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'snapshot') {
+            latestSnapshot = msg.data;
+            handleSnapshot(msg.data);
+            if (!animFrameRequested) {
+              animFrameRequested = true;
+              requestAnimationFrame(renderCanvases);
+            }
+          } else if (msg.type === 'log') {
+            appendLog(msg.data.entry, msg.data.level);
+          }
+        } catch (e) {}
       };
 
       ws.onclose = () => {
@@ -676,19 +692,35 @@
       }
     });
 
+    // Button to Toggle Physical Attack
     btnTriggerPhysical.addEventListener('click', async () => {
-      const res = await fetch('/api/trigger_button', { method: 'POST' });
-      const data = await res.json();
-      isAttacking = data.active;
-      btnTriggerPhysical.textContent = isAttacking ? '⚡ RELEASE BUTTON (RESTORE)' : '⚡ PRESS BUTTON (CHANGE CURRENT)';
+      try {
+        const res = await fetch('/api/trigger_button', { method: 'POST' });
+        const data = await res.json();
+        isAttacking = data.active;
+        updateAttackButtonText(isAttacking);
+      } catch (e) {}
+    });
+
+    // Prominent SAFE Button - Instantly turns off and restores normal state!
+    btnForceSafe.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/reset_safe', { method: 'POST' });
+        const data = await res.json();
+        isAttacking = false;
+        updateAttackButtonText(false);
+        appendLog('[USER ACTION] SAFE MODE engaged. All disturbances turned OFF.', 'SUCCESS');
+      } catch (e) {}
     });
 
     btnToggleDefense.addEventListener('click', async () => {
-      const res = await fetch('/api/toggle_defense', { method: 'POST' });
-      const data = await res.json();
-      isDefending = data.active;
-      btnToggleDefense.textContent = isDefending ? '🛡️ POWER MASKING: ON' : '🛡️ POWER MASKING: OFF';
-      btnToggleDefense.className = isDefending ? 'btn-defense' : '';
+      try {
+        const res = await fetch('/api/toggle_defense', { method: 'POST' });
+        const data = await res.json();
+        isDefending = data.active;
+        btnToggleDefense.textContent = isDefending ? '🛡️ MASKING: ON' : '🛡️ MASKING: OFF';
+        btnToggleDefense.className = isDefending ? 'btn-defense' : '';
+      } catch (e) {}
     });
 
     chkAutoDefense.addEventListener('change', async () => {
@@ -718,12 +750,30 @@
       a.click();
     });
 
+    function updateAttackButtonText(attacking) {
+      if (attacking) {
+        btnTriggerPhysical.textContent = '⚡ TURN OFF ATTACK (RESTORE NORMAL)';
+        btnTriggerPhysical.className = 'btn-danger';
+        btnTriggerPhysical.style.background = '#ff2244';
+        btnTriggerPhysical.style.color = '#ffffff';
+      } else {
+        btnTriggerPhysical.textContent = '⚡ INJECT ATTACK (CHANGE CURRENT)';
+        btnTriggerPhysical.className = 'btn-danger';
+        btnTriggerPhysical.style.background = '#3d0b12';
+        btnTriggerPhysical.style.color = '#ffaaaa';
+      }
+    }
+
+    // Process incoming snapshot from backend
     function handleSnapshot(d) {
-      cachedSnapshot = d;
       isConnected = d.is_running;
 
       btnConnect.textContent = isConnected ? 'DISCONNECT' : 'CONNECT ESP32';
       btnConnect.className = isConnected ? 'btn-danger' : 'btn-primary';
+
+      // Keep button text in sync with actual backend attack status
+      isAttacking = d.attacker_active;
+      updateAttackButtonText(isAttacking);
 
       statusPill.className = 'status-pill';
       if (!isConnected) {
@@ -803,12 +853,15 @@
       }
 
       valRate.textContent = `${d.rate_hz} Hz (${d.sample_count} pkts)`;
-
-      renderOscilloscope(d);
-      renderOledMirror(d);
     }
 
-    function renderOscilloscope(d) {
+    // High performance canvas renderer (requestAnimationFrame) - NO freezing or lag!
+    function renderCanvases() {
+      animFrameRequested = false;
+      if (!latestSnapshot) return;
+      const d = latestSnapshot;
+
+      // 1. Render Oscilloscope
       const c = oscCanvas;
       const ctx = oscCtx;
       const w = c.width;
@@ -816,10 +869,11 @@
 
       ctx.clearRect(0, 0, w, h);
 
-      const marginLeft = 60 * window.devicePixelRatio;
-      const marginRight = 20 * window.devicePixelRatio;
-      const marginTop = 30 * window.devicePixelRatio;
-      const marginBottom = 30 * window.devicePixelRatio;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const marginLeft = 60 * dpr;
+      const marginRight = 20 * dpr;
+      const marginTop = 30 * dpr;
+      const marginBottom = 30 * dpr;
       const plotW = w - marginLeft - marginRight;
       const plotH = h - marginTop - marginBottom;
 
@@ -829,7 +883,7 @@
       ctx.lineWidth = 1;
       ctx.strokeStyle = '#0d2418';
       ctx.setLineDash([4, 4]);
-      ctx.font = `${10 * window.devicePixelRatio}px Consolas`;
+      ctx.font = `${10 * dpr}px Consolas`;
       ctx.fillStyle = '#4e8a65';
       ctx.textAlign = 'right';
 
@@ -866,6 +920,7 @@
         ctx.setLineDash([]);
         const stepX = plotW / Math.max(data.length - 1, 1);
 
+        // Fill area under trace
         ctx.beginPath();
         ctx.moveTo(marginLeft, marginTop + plotH);
         data.forEach((val, i) => {
@@ -879,6 +934,7 @@
         ctx.fillStyle = fillColor;
         ctx.fill();
 
+        // Stroke line: Fast double-pass glow without GPU shadowBlur lag
         ctx.beginPath();
         data.forEach((val, i) => {
           const x = marginLeft + (i * stepX);
@@ -887,78 +943,85 @@
           if (i === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
         });
-        ctx.strokeStyle = traceColor;
-        ctx.lineWidth = 2.5 * window.devicePixelRatio;
-        ctx.shadowColor = traceColor;
-        ctx.shadowBlur = 8;
+        // Pass 1: Semi-transparent glow
+        ctx.strokeStyle = fillColor;
+        ctx.lineWidth = 5 * dpr;
         ctx.stroke();
-        ctx.shadowBlur = 0;
+        // Pass 2: Sharp foreground line
+        ctx.strokeStyle = traceColor;
+        ctx.lineWidth = 2 * dpr;
+        ctx.stroke();
       }
-    }
 
-    function renderOledMirror(d) {
-      const c = oledCanvas;
-      const ctx = oledCtx;
-      const w = 256;
-      const h = 128;
+      // 2. Render OLED Mirror
+      const oc = oledCanvas;
+      const octx = oledCtx;
+      const ow = 256;
+      const oh = 128;
       const isDefending = (d.defense_active || d.state === 'DEFENSE_ACTIVE' || d.state === 'ATTACK_DETECTED');
 
-      ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, w, h);
+      octx.clearRect(0, 0, ow, oh);
+      octx.fillStyle = '#000000';
+      octx.fillRect(0, 0, ow, oh);
 
       if (isDefending) {
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, w, 28);
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 12px Consolas';
-        ctx.textAlign = 'center';
-        ctx.fillText('! DEFENSE: MASKING !', w / 2, 19);
+        octx.fillStyle = '#FFFFFF';
+        octx.fillRect(0, 0, ow, 28);
+        octx.fillStyle = '#000000';
+        octx.font = 'bold 12px Consolas';
+        octx.textAlign = 'center';
+        octx.fillText('! DEFENSE: MASKING !', ow / 2, 19);
       } else {
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 11px Consolas';
-        ctx.textAlign = 'left';
-        ctx.fillText('ML STATUS: SECURE', 10, 18);
-        ctx.textAlign = 'right';
-        ctx.fillText(`${Math.round(d.current_mA)}mA`, w - 10, 18);
+        octx.fillStyle = '#FFFFFF';
+        octx.font = 'bold 11px Consolas';
+        octx.textAlign = 'left';
+        octx.fillText('ML STATUS: SECURE', 10, 18);
+        octx.textAlign = 'right';
+        octx.fillText(`${Math.round(d.current_mA)}mA`, ow - 10, 18);
       }
 
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 10px Consolas';
-      ctx.textAlign = 'left';
-      ctx.fillText(isDefending ? 'KEY: PROTECTED 🛡️' : 'KEY: IDLE', 10, 46);
+      octx.fillStyle = '#FFFFFF';
+      octx.font = 'bold 10px Consolas';
+      octx.textAlign = 'left';
+      octx.fillText(isDefending ? 'KEY: PROTECTED 🛡️' : 'KEY: IDLE', 10, 46);
 
-      ctx.font = '10px Consolas';
-      ctx.textAlign = 'right';
-      ctx.fillText(d.attacker_active ? 'ATTACK: ON [PROBE]' : 'ATTACK: OFF', w - 10, 46);
+      octx.font = '10px Consolas';
+      octx.textAlign = 'right';
+      octx.fillText(d.attacker_active ? 'ATTACK: ON [PROBE]' : 'ATTACK: OFF', ow - 10, 46);
 
       const oledData = d.oled_data;
       if (oledData && oledData.length >= 2) {
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
+        octx.strokeStyle = '#FFFFFF';
+        octx.lineWidth = 1.5;
+        octx.beginPath();
         const maxOledY = 200.0;
         const gTop = 56;
         const gBottom = 120;
         const gHeight = gBottom - gTop;
-        const step = w / 128;
+        const step = ow / 128;
 
         oledData.forEach((val, i) => {
           const clamped = Math.min(Math.max(val, 0), maxOledY);
           const y = gBottom - ((clamped / maxOledY) * gHeight);
           const x = i * step;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+          if (i === 0) octx.moveTo(x, y);
+          else octx.lineTo(x, y);
         });
-        ctx.stroke();
+        octx.stroke();
       }
     }
 
+    // Append to terminal box with 100-line cap to prevent DOM freezing
     function appendLog(text, level) {
       const div = document.createElement('div');
       div.className = `log-line ${level || 'INFO'}`;
       div.textContent = text;
       terminalBox.appendChild(div);
+
+      // Keep only last 100 lines - prevents DOM explosion and tab freezing
+      while (terminalBox.children.length > 100) {
+        terminalBox.removeChild(terminalBox.firstChild);
+      }
       terminalBox.scrollTop = terminalBox.scrollHeight;
     }
 
