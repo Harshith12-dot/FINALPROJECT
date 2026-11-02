@@ -28,3 +28,7 @@ Desktop.ini
 
 # Temporary logs
 *.log
+
+# Generated PDF presentation and documents
+*.pdf
+
